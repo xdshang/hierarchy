@@ -30,6 +30,22 @@ using namespace std;
 #include "FixedW.h"
 #include "FixedSy.h"
 
+// // Reads a word and returns its index in the vocabulary
+// int ReadWordIndex(FILE *fin) {
+//  char word[MAX_STRING];
+//  ReadWord(word, fin);
+//  if (feof(fin)) return -1;  // if end of the file.
+//  return SearchVocab(word);
+// }
+
+// /** detecting whether base is ends with str
+//  */
+// bool endsWith (char* base, const char* str) {
+//  int blen = strlen(base);
+//  int slen = strlen(str);
+//  return (blen >= slen) && (0 == strcmp(base + blen - slen, str));
+// }
+
 void ReadSy_Delta(){
 	char word[MAX_STRING];
 	FILE *fin;
