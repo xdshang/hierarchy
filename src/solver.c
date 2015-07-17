@@ -153,12 +153,6 @@ int main(int argc, char **argv) {
   else {
     train_arg.weight_decay = 0.01;
   }
-  if ((i = arg_pos("-momentum", argc, argv)) > 0) {
-    train_arg.momentum = atof(argv[i + 1]);
-  }
-  else {
-    train_arg.momentum = 0.9;
-  }
   if ((i = arg_pos("-threads", argc, argv)) > 0) {
     loss_arg.thread_num = atoi(argv[i + 1]);
     train_arg.thread_num = loss_arg.thread_num;

@@ -5,6 +5,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <math.h>
+#include <limits.h>
 #include <assert.h>
 #include <hdf5.h>
 #include <hdf5_hl.h>
@@ -59,22 +60,6 @@ void init_hs(NetParam *param) {
   assert(param->syn1);
   memset(param->syn1, 0, msize * sizeof(Dtype));
 
-  posix_memalign((void**)&(param->syn0_best), 128, msize * sizeof(Dtype));
-  assert(param->syn0_best);
-  memcpy(param->syn0_best, param->syn0, msize * sizeof(Dtype));
-
-  posix_memalign((void**)&(param->syn1_best), 128, msize * sizeof(Dtype));
-  assert(param->syn1_best);
-  memcpy(param->syn1_best, param->syn0, msize * sizeof(Dtype));
-
-  posix_memalign((void**)&(param->syn0_delta), 128, msize * sizeof(Dtype));
-  assert(param->syn0_delta);
-  memset(param->syn0_delta, 0, msize * sizeof(Dtype));
-
-  posix_memalign((void**)&(param->syn1_delta), 128, msize * sizeof(Dtype));
-  assert(param->syn1_delta);
-  memset(param->syn1_delta, 0, msize * sizeof(Dtype));
-
   create_binary_tree(param->vocab);
 
   if (!expTable) {
@@ -90,9 +75,10 @@ void init_hs(NetParam *param) {
 }
 
 void *compute_hs_loss(void *args) {
-  size_t word_A[PAIR_TYPE_NUM], word_B[PAIR_TYPE_NUM];
-  size_t m, c, d, index_A, node_idx;
-  size_t pair_stamp, pair_start, pair_end, batch_size;
+  int word_A[PAIR_TYPE_NUM], word_B[PAIR_TYPE_NUM];
+  int m, c, d;
+  int pair_stamp, pair_start, pair_end, batch_size;
+  size_t index_A, node_idx;
   LossArg* thread_arg = (LossArg*)args;
   NetParam* param = thread_arg->param;
   DataPair* pairs = thread_arg->data;
@@ -147,9 +133,10 @@ void *compute_hs_loss(void *args) {
 }
 
 void* train_hs(void *args) {
-  size_t word_A[PAIR_TYPE_NUM], word_B[PAIR_TYPE_NUM];
-  size_t m, c, d, index_A, node_idx;
-  size_t pair_stamp, pair_start, pair_end, batch_size;
+  int word_A[PAIR_TYPE_NUM], word_B[PAIR_TYPE_NUM];
+  int m, c, d;
+  size_t index_A, node_idx;
+  int pair_stamp, pair_start, pair_end, batch_size;
   TrainArg* thread_arg = (TrainArg*)args;
   NetParam* param = thread_arg->param;
   DataPair* pairs = thread_arg->data;
@@ -197,10 +184,8 @@ void* train_hs(void *args) {
         // }
         // Learn weights hidden -> output
         for (c = 0; c < param->layer1_size; ++c) {
-          param->syn1_delta[c + node_idx] = thread_arg->momentum * param->syn1_delta[c + node_idx] - 
-              thread_arg->weight_decay * thread_arg->learning_rate * param->syn1[c + node_idx] + 
-              g * param->syn0[c + index_A];
-          param->syn1[c + node_idx] += param->syn1_delta[c + node_idx];
+          param->syn1[c + node_idx] += g * param->syn0[c + index_A] -
+              thread_arg->weight_decay * thread_arg->learning_rate * param->syn1[c + node_idx];
         }
       }
     }
@@ -218,17 +203,17 @@ void* train_hs(void *args) {
 // Create binary Huffman tree using the word counts
 // Frequent words will have short uniqe binary codes
 void create_binary_tree(Vocab *vocab) {
-  size_t a, b, i, min1i, min2i, pos1, pos2, point[MAX_CODE_LENGTH];
+  int a, b, i, min1i, min2i, pos1, pos2, point[MAX_CODE_LENGTH];
   char code[MAX_CODE_LENGTH];
-  size_t *count = (size_t*)malloc((vocab->size * 2 + 1) * sizeof(size_t));
-  size_t *binary = (size_t*)calloc(vocab->size * 2 + 1, sizeof(size_t));
-  size_t *parent_node = (size_t*)malloc((vocab->size * 2 + 1) * sizeof(size_t));
+  char *binary = (char*)calloc(vocab->size * 2 + 1, sizeof(char));
+  int *count = (int*)malloc((vocab->size * 2 + 1) * sizeof(int));
+  int *parent_node = (int*)malloc((vocab->size * 2 + 1) * sizeof(int));
 
   for (a = 0; a < vocab->size; a++) {
     count[a] = vocab->data[a].cn;
   }
   for (a = vocab->size; a < vocab->size * 2; a++) {
-    count[a] = 1e15;
+    count[a] = INT_MAX;
   }
   pos1 = vocab->size - 1;
   pos2 = vocab->size;
@@ -277,8 +262,8 @@ void create_binary_tree(Vocab *vocab) {
     }
     assert(i < MAX_CODE_LENGTH);
     vocab->data[a].codelen = i;
-    vocab->data[a].code = (char*)malloc(i * sizeof(char));
     vocab->data[a].point = (int*)malloc(i * sizeof(int));
+    vocab->data[a].code = (char*)malloc(i * sizeof(char));
     vocab->data[a].point[0] = vocab->size - 2;
     for (b = 0; b < i; b++) {
       vocab->data[a].code[i - b - 1] = code[b];

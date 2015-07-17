@@ -7,8 +7,7 @@
 #define MAX_STRING 100 
 #define MAX_PAIRS_NUM 15000000
 
-const int vocab_hash_size = 30000000;  // Maximum 30 * 0.7 = 21M words in the vocabulary
-int min_reduce = 1, debug_mode = 2;
+const int vocab_hash_size = 200000000;  // about 1.5G
 int *vocab_hash;
 
 void learn_vocab_from_train_file(const DataParam* param, Vocab* vocab);
@@ -38,7 +37,7 @@ void init_data(const DataParam* param, Vocab* vocab, DataPair* pairs) {
 }
 
 // Returns hash value of a word   open addressing linear probing
-int get_word_hash(const char *word) {
+unsigned int get_word_hash(const char *word) {
   unsigned long long a, hash = 0;
   for (a = 0; a < strlen(word); a++) hash = hash * 257 + word[a]; // based on the word composition to generate the hash value. some words may get the same hash value and use the linear probing to solve the problem.
   hash = hash % vocab_hash_size;
@@ -58,7 +57,8 @@ int search_vocab(const Vocab* vocab, const char *word) {
 
 // Adds a word to the vocabulary and revise the vocab_hash table.
 int add_word_to_vocab(Vocab* vocab, const char *word) {
-  unsigned int hash, length = strlen(word) + 1;
+  unsigned int hash;
+  int length = strlen(word) + 1;
   if (length > MAX_STRING) length = MAX_STRING;
   vocab->data[vocab->size].word = (char*)malloc(length * sizeof(char));
   strncpy(vocab->data[vocab->size].word, word, length);
@@ -79,6 +79,7 @@ int add_word_to_vocab(Vocab* vocab, const char *word) {
 
 // Reduces the vocabulary by removing infrequent tokens
 void reduce_vocab(Vocab* vocab) {
+  static int min_reduce = 1;
   int a, b = 0;
   unsigned int hash;
   for (a = 0; a < vocab->size; a++) {
@@ -99,7 +100,6 @@ void reduce_vocab(Vocab* vocab) {
     while (vocab_hash[hash] != -1) hash = (hash + 1) % vocab_hash_size;
     vocab_hash[hash] = a;
   }
-  fflush(stdout);
   min_reduce++;
 }
 
@@ -108,13 +108,12 @@ int vocab_compare(const void *a, const void *b) {
   return ((VocabWord*)b)->cn - ((VocabWord*)a)->cn;
 }
 void sort_vocab(Vocab* vocab, const int min_count) {
-  int a, size, train_words;
+  int a, size;
   unsigned int hash;
   // Sort the vocabulary and keep </s> at the first position
   qsort(vocab->data, vocab->size, sizeof(VocabWord), vocab_compare);
   memset(vocab_hash, -1, vocab_hash_size * sizeof(int));
   size = vocab->size;
-  train_words = 0;
   for (a = 0; a < size; a++) {
     // Words occuring less than min_count times will be discarded from the vocab
     if (vocab->data[a].cn < min_count) {
@@ -125,7 +124,6 @@ void sort_vocab(Vocab* vocab, const int min_count) {
       hash = get_word_hash(vocab->data[a].word);
       while (vocab_hash[hash] != -1) hash = (hash + 1) % vocab_hash_size;
       vocab_hash[hash] = a;
-      train_words += vocab->data[a].cn;
     }
   }
   vocab->data = (VocabWord*)realloc(vocab->data, (vocab->size + 1) * sizeof(VocabWord));
@@ -159,7 +157,8 @@ void read_word(char *word, FILE *fin) {
 void learn_vocab_from_train_file(const DataParam* param, Vocab* vocab) {
   char word[MAX_STRING];
   FILE *fin;
-  long long a, i, train_words = 0;
+  int a, i;
+  long long train_words = 0;
   fin = fopen(param->train_file, "rb");
   if (fin == NULL) {
     printf("ERROR: training data file not found!\n");
@@ -173,7 +172,7 @@ void learn_vocab_from_train_file(const DataParam* param, Vocab* vocab) {
     if (strcmp(word, (const char*)"</s>") == 0)
       continue;
     train_words++;
-    if ((debug_mode > 1) && (train_words % 100000 == 0)) {
+    if (train_words % 100000 == 0) {
       printf("%lldK%c", train_words / 1000, 13);
       fflush(stdout);
     }
@@ -186,20 +185,20 @@ void learn_vocab_from_train_file(const DataParam* param, Vocab* vocab) {
       vocab->data[i].cn++;
     }
     if (vocab->size > vocab_hash_size * 0.7) {
+      printf("WARNING: vocab size is too big for hash, removing infrequent words.\n");
       reduce_vocab(vocab);
     }
   }
   sort_vocab(vocab, param->min_count); //It has min count settings.
 
-  if (debug_mode > 0) {
-    printf("Vocab size: %lld\n", (long long)vocab->size);
-    printf("Words in train file: %lld\n", train_words);
-  }
+  printf("Vocab size: %d\n", vocab->size);
+  printf("Words in train file: %lld\n", train_words);
+
   fclose(fin);
 }
 
 void read_vocab(const DataParam* param, Vocab* vocab) {
-  long long a, i = 0;
+  int a, i = 0;
   char c;
   char word[MAX_STRING];
   FILE *fin = fopen(param->read_vocab_file, "rb");
@@ -217,9 +216,7 @@ void read_vocab(const DataParam* param, Vocab* vocab) {
     i++;
   }
   sort_vocab(vocab, param->min_count);
-  if (debug_mode > 0) {
-    printf("Vocab size: %lld\n", (long long)vocab->size);
-  }
+  printf("Vocab size: %d\n", vocab->size);
   fin = fopen(param->train_file, "rb");
   if (fin == NULL) {
     printf("ERROR: training data file not found!\n");
@@ -230,7 +227,7 @@ void read_vocab(const DataParam* param, Vocab* vocab) {
 }
 
 void save_vocab(const DataParam* param, const Vocab* vocab) {
-  long long i;
+  int i;
   FILE *fo = fopen(param->save_vocab_file, "wb");
   for (i = 0; i < vocab->size; i++) {
     fprintf(fo, "%s %d\n", vocab->data[i].word, vocab->data[i].cn);
@@ -247,7 +244,7 @@ void learn_pairs_from_file(const DataParam* param, DataPair* pairs) {
     exit(1);
   }
   pairs->size = 0;
-  size_t wordstamp = 0;
+  int wordstamp = 0;
   while (1) {
     read_word(word, fin);
     if (feof(fin)) break;  // file end, break out.

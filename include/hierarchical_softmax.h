@@ -10,10 +10,8 @@ typedef float Dtype;
 typedef struct _NetParam {
   char *syn0_init_file, *syn1_init_file;
   Dtype *syn0, *syn1;
-  Dtype *syn0_delta, *syn1_delta;
-  Dtype *syn0_best, *syn1_best;
   Vocab *vocab;
-  size_t layer1_size;
+  int layer1_size;
 } NetParam;
 
 typedef struct _LossArg {
@@ -27,7 +25,6 @@ typedef struct _TrainArg {
   int thread_num, thread_id;
   Dtype learning_rate;
   Dtype weight_decay;
-  Dtype momentum;
   NetParam* param;
   DataPair* data;
 } TrainArg;

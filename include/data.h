@@ -1,16 +1,14 @@
 #ifndef _DATA_H
 #define _DATA_H
 
-#include <stddef.h>
-
 typedef struct _Pair {
   char *first, *second;
 } Pair;
 
 typedef struct _DataPair {
   Pair* data;
-  size_t size;
-  size_t capacity;
+  int size;
+  int capacity;
 } DataPair;
 
 typedef struct _VocabWord {
@@ -21,8 +19,8 @@ typedef struct _VocabWord {
 
 typedef struct _Vocab {
   VocabWord* data;
-  size_t size;
-  size_t capacity;
+  int size;
+  int capacity;
 } Vocab;
 
 typedef struct _DataParam {
