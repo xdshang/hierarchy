@@ -189,7 +189,6 @@ void* train_hs(void *args) {
         }
       }
     }
-    c = 0;
     //Compute mini batch loss and add to the neu1e.  // for (c = 0; c < layer1_size; c++){
     //  syn0_delta[c + index_A] = 0.9 * syn0_delta[c + index_A] - 0.0001 * alpha * syn0[c + index_A] + neu1e[c];
     //  syn0[c + index_A] += syn0_delta[c + index_A];
