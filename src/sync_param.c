@@ -1,9 +1,11 @@
 #include "sync_param.h"
 
 #include <stdlib.h>
+#include <hdf5.h>
 
 #define MAX_NUM_PARAM 5
 #define DATASET_NAME "param"
+#define LOCK_OFFSET 10
 
 typedef struct _Handle {
   hid_t h5file;
@@ -28,14 +30,20 @@ int create_sync_param(const char *fname, const int num, const int dim) {
   return hid;
 }
 
-int destroy_sync_param(const int hid);
+int destroy_sync_param(const int hid) {
+  return 0;
+}
 
-const Dtype* sync_param(const int hid, const int id);
+const Dtype* sync_param(const int hid, const int id) {
+  return NULL;
+}
 
-Dtype* mutable_sync_param(const int hid, const int id);
+Dtype* mutable_sync_param(const int hid, const int id) {
+  return NULL;
+}
 
 int compare(const void *a, const void *b) {
-  return (int)*a - (int)*b;
+  return *((int*)a) - *((int*)b);
 }
 
 int prefetch_sync_param(const int hid, int size, int* list) {
@@ -69,6 +77,8 @@ int prefetch_sync_param(const int hid, int size, int* list) {
       // add to current list
       _handle[hid].curr_list[_handle[hid].curr_size++] = list[i];
     }
+    // lock these elements so as to keep them in the next curr_list
+    _handle[hid].status[list[i]] += LOCK_OFFSET;
   }
   // perform removing
   for (i = 0; i < _handle[hid].rm_size; ++i) {
@@ -80,15 +90,26 @@ int prefetch_sync_param(const int hid, int size, int* list) {
       // TODO: remove from hashtable
     }
   }
-  // perform prefetching
+  // generate rm_list for the next iteration
+  _handle[hid].rm_size = 0;
+  for (i = 0, j = 0; i < _handle[hid].curr_size; ++i) {
+    if (_handle[hid].status[_handle[hid].curr_list[i]] < LOCK_OFFSET) {
+      _handle[hid].rm_list[_handle[hid].rm_size++] = _handle[hid].curr_list[i];
+      _handle[hid].status[_handle[hid].curr_list[i]] = -_handle[hid].status[_handle[hid].curr_list[i]];
+    }
+    else {
+      _handle[hid].status[_handle[hid].curr_list[i]] -= LOCK_OFFSET;
+      _handle[hid].curr_list[j] = _handle[hid].curr_list[i];
+      ++j;
+    }
+  }
+  _handle[hid].curr_size = j;
+  // append prefetch list and perform prefetching
   for (i = 0; i < fet_size; ++i) {
-    _handle[hid].status[list[i]] = 1;
     // TODO: get hash
     // TODO: read from hdf5 file
-  }
-  // generate rm_list for next iteration
-  for (i = 0; i < ) {
-
+    _handle[hid].status[list[i]] = 1;
+    _handle[hid].curr_list[_handle[hid].curr_size++] = list[i];
   }
   return 0;
 }

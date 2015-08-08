@@ -1,4 +1,4 @@
-#ifdef _SYNC_PARAM_H
+#ifndef _SYNC_PARAM_H
 #define _SYNC_PARAM_H
 
 typedef float Dtype;
