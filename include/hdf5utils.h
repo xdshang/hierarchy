@@ -13,10 +13,10 @@ typedef double Dtype;
 hid_t h5open(const char* file_name, const char* dataset_name,
     hsize_t ndim, const hsize_t* dims);
 
-herr_t h5read(hid_t dataset, hsize_t num, hsize_t ndim,
+herr_t h5read(hid_t dataset, hsize_t ndim,
     const hsize_t* offset, const hsize_t* count, Dtype* buffer);
 
-herr_t h5write(hid_t dataset, hsize_t num, hsize_t ndim,
+herr_t h5write(hid_t dataset, hsize_t ndim,
     const hsize_t* offset, const hsize_t* count, const Dtype* buffer);
 
 herr_t h5close(hid_t dataset);

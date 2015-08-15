@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include <check.h>
 
 #include "hdf5utils.h"
@@ -38,26 +39,44 @@ END_TEST
 
 START_TEST(test_change_multiple_lines) {
   hid_t dataset;
-  Dtype mem[chn * dims[1]];
-  hsize_t offset[chn * ndim], count[chn * ndim];
+  Dtype mem_input[chn * dims[1]], mem_output[chn * dims[1]];
+  hsize_t offset[ndim], count[ndim];
   int i, j;
 
   dataset = h5open(H5F_NAME, DATASET_NAME, ndim, dims);
   // prepare data for change
   for (i = 0; i < chn; ++i) {
     for (j = 0; j < dims[1]; ++j) {
-      mem[i * dims[1] + j] = -(i + j);
+      mem_output[i * dims[1] + j] = -(i + j);
     }
   }
+  // change the corresponding lines
   for (i = 0; i < chn; ++i) {
-    offset[i * ndim] = chl[i];
-    count[i * ndim] = 1;
+    offset[0] = chl[i];
+    count[0] = 1;
     for (j = 1; j < ndim; ++j) {
-      offset[i * ndim + j] = 0;
-      count[i * ndim + j] = dims[j];
+      offset[j] = 0;
+      count[j] = dims[j];
+    }
+    h5write(dataset, ndim, offset, count, mem_output + i * dims[1]);
+  }
+  // read those changed lines again
+  for (i = 0; i < chn; ++i) {
+    offset[0] = chl[i];
+    count[0] = 1;
+    for (j = 1; j < ndim; ++j) {
+      offset[j] = 0;
+      count[j] = dims[j];
+    }
+    h5read(dataset, ndim, offset, count, mem_input + i * dims[1]);
+  }
+  // assert input and output are same
+  for (i = 0; i < chn; ++i) {
+    for (j = 0; j < dims[1]; ++j) {
+      ck_assert_msg(fabs(mem_input[i * dims[1] + j] - 
+          mem_output[i * dims[1] + j]) < 1e-4, "%d, %d\n", i, j);
     }
   }
-  h5write(dataset, chn, ndim, offset, count, mem);
   ck_assert_msg(h5close(dataset) >= 0, NULL);
 }
 END_TEST

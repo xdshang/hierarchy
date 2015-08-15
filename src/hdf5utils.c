@@ -54,51 +54,31 @@ hid_t h5open(const char* file_name, const char* dataset_name,
   return dataset;
 }
 
-herr_t _h5rw_helper(hid_t dataset, hsize_t num, hsize_t ndim,
+herr_t _h5rw_helper(hid_t dataset, hsize_t ndim,
     const hsize_t* offset, const hsize_t* count,
     hid_t* filespace, hid_t* memspace) {
-  hsize_t mem_dims[ndim], i;
   herr_t status;
-
-  if (num < 1) {
-    return -1;
-  }
 
   *filespace = H5Dget_space(dataset);
   if (H5Sget_simple_extent_ndims(*filespace) != ndim) {
     return -1;
   }
-  // accumulate along the first axis
-  mem_dims[0] = 0;
-  for (i = 0; i < num; ++i) {
-    mem_dims[0] += count[i * ndim];
-  }
-  // the rest dimensions should be same
-  for (i = 1; i < ndim; ++i) {
-    mem_dims[i] = count[i];
-  }
-  *memspace = H5Screate_simple(ndim, mem_dims, NULL);
-  // select all the region
+  *memspace = H5Screate_simple(ndim, count, NULL);
+
   if ((status = H5Sselect_hyperslab(*filespace, H5S_SELECT_SET, 
       offset, NULL, count, NULL)) < 0) {
     return status;
-  }
-  for (i = 1; i < num; ++i) {
-    if ((status = H5Sselect_hyperslab(*filespace, H5S_SELECT_OR, 
-        offset + i * ndim, NULL, count + i * ndim, NULL)) < 0) {
-      return status;
-    }
   }
 
   return 0;
 }
 
-herr_t h5read(hid_t dataset, hsize_t num, hsize_t ndim,
+herr_t h5read(hid_t dataset, hsize_t ndim,
     const hsize_t* offset, const hsize_t* count, Dtype* buffer) {
   hid_t filespace, memspace;
   herr_t status;
 
-  if ((status = _h5rw_helper(dataset, num, ndim, offset, count,
+  if ((status = _h5rw_helper(dataset, ndim, offset, count,
       &filespace, &memspace)) < 0) {
     return status;
   }
@@ -112,12 +92,12 @@ herr_t h5read(hid_t dataset, hsize_t num, hsize_t ndim,
   return 0;
 }
 
-herr_t h5write(hid_t dataset, hsize_t num, hsize_t ndim,
+herr_t h5write(hid_t dataset, hsize_t ndim,
     const hsize_t* offset, const hsize_t* count, const Dtype* buffer) {
   hid_t filespace, memspace;
   herr_t status;
 
-  if ((status = _h5rw_helper(dataset, num, ndim, offset, count,
+  if ((status = _h5rw_helper(dataset, ndim, offset, count,
       &filespace, &memspace)) < 0) {
     return status;
   }
