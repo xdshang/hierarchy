@@ -11,7 +11,7 @@
 #define H5TYPE H5T_NATIVE_DOUBLE
 #endif
 
-#define H5F_NAME "h5test_data.h5"
+#define H5F_NAME "h5util_testdata.h5"
 #define DATASET_NAME "param"
 
 const hsize_t ndim = 2, chn = 3;

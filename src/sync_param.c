@@ -3,8 +3,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <hdf5.h>
+#include <pthread.h>
 
 #define DATASET_NAME "param"
+#define NDIM 2
 #define SLOT_MASK (MAX_NUM_SLOT - 1)
 // define errors
 #define NOT_ENOUGH_HANDLE_ERROR -1
@@ -12,6 +14,9 @@
 #define INVALID_ID_ERROR -3
 #define EXCEED_MAX_NUM_LIST_ERROR -4
 #define EXCEED_MAX_NUM_SLOT_ERROR -5
+#define HDF5_OPEN_ERROR -6
+#define HDF5_RW_ERROR -7
+#define HDF5_CLOSE_ERROR -8
 
 typedef struct handle {
   hid_t h5id;
@@ -47,6 +52,7 @@ int _valid_hid(const int hid) {
 }
 
 int create_sync_param(const char *fname, const int num, const int dim) {
+  hsize_t dims[NDIM] = {num, dim};
   int i, hid; 
   // initialize handle pool
   if (handle_ptr >= MAX_NUM_HANDLE) {
@@ -59,8 +65,11 @@ int create_sync_param(const char *fname, const int num, const int dim) {
     return NOT_ENOUGH_HANDLE_ERROR;
   }
   hid = handle_id[handle_ptr--];
-  // TODO: open a new hdf5 file
-  // TODO: check the dimension
+  // open hdf5 file and check dimensions
+  handle[hid].h5id = h5open(fname, DATASET_NAME, NDIM, dims);
+  if (handle[hid].h5id < 0) {
+    return HDF5_OPEN_ERROR;
+  }
   handle[hid].num = num;
   handle[hid].dim = dim;
   handle[hid].status = (unsigned int*)calloc(num, sizeof(unsigned int));
@@ -80,11 +89,30 @@ int create_sync_param(const char *fname, const int num, const int dim) {
 }
 
 int destroy_sync_param(const int hid) {
+  hsize_t offset[NDIM] = {-1, 0};
+  hsize_t count[NDIM] = {1, handle[hid].dim};
+  int i, j, stat, err = 0;
+
   if (!_valid_hid(hid)) {
     return INVALID_HID_ERROR;
   }
-  // TODO: write back the remained ones
-  // TODO: close hdf5 file
+  // write back the remained ones
+  for (i = 0; i < handle[hid].curr_size; ++i) {
+    handle[hid].rm_list[handle[hid].rm_size++] = handle[hid].curr_list[i];
+  }
+  for (i = 0; i < handle[hid].rm_size; ++i) {
+    offset[0] = handle[hid].rm_list[i];
+    stat = handle[hid].status[offset[0]];
+    j = stat >> 4;
+    if ((stat & 0x2) && (h5write(handle[hid].h5id, NDIM, offset, count, 
+        handle[hid].mem + j * handle[hid].dim) < 0)) {
+      err = HDF5_RW_ERROR;
+    }
+  }
+  // close hdf5 file
+  if (h5close(handle[hid].h5id) < 0) {
+    err = HDF5_CLOSE_ERROR;
+  }
   free(handle[hid].status);
   free(handle[hid].rm_list);
   free(handle[hid].curr_list);
@@ -93,7 +121,7 @@ int destroy_sync_param(const int hid) {
   memset(&(handle[hid]), 0, sizeof(Handle));
   handle_id[++handle_ptr] = hid;
 
-  return 0;
+  return err;
 }
 
 const Dtype* sync_param(const int hid, const int id) {
@@ -113,81 +141,106 @@ Dtype* mutable_sync_param(const int hid, const int id) {
   return NULL;
 }
 
-int prefetch_sync_param(const int hid, int size, int* list) {
+void *prefetch_sync_param(void *args) {
   int i, j, p, stat, fet_size = 0;
+  PrefetchArgs* fet_args = (PrefetchArgs*)args;
 
-  if (!_valid_hid(hid)) {
-    return INVALID_HID_ERROR;
+  if (!_valid_hid(fet_args->hid)) {
+    fet_args->status = INVALID_HID_ERROR;
+    pthread_exit(NULL);
   }
   // reduce the fetching list
-  for (i = 0; i < size; ++i) {
-    p = list[i];
-    if (p < 0 || p >= handle[hid].num) {
-      return INVALID_ID_ERROR;
+  for (i = 0; i < fet_args->size; ++i) {
+    p = fet_args->list[i];
+    if (p < 0 || p >= handle[fet_args->hid].num) {
+      fet_args->status = INVALID_ID_ERROR;
+      pthread_exit(NULL);
     }
-    stat = handle[hid].status[p];
+    stat = handle[fet_args->hid].status[p];
+    // if it is already marked to be feteched
     if (!(stat & 0x8)) {
       // if it is alreaddy in memory
       if (stat & 0x1) {
         // if it is to be removed
         if (stat & 0x4) {
           stat &= (SLOT_MASK << 4) | 0xb;
-          handle[hid].curr_list[handle[hid].curr_size++] = p;
+          handle[fet_args->hid].curr_list[handle[fet_args->hid].curr_size++] = p;
         }
       }
       else {
-        list[fet_size++] = p;
+        fet_args->list[fet_size++] = p;
       }
       stat |= 0x8;
-      handle[hid].status[p] = stat;
+      handle[fet_args->hid].status[p] = stat;
     }
   }
   if (fet_size > MAX_NUM_LIST) {
-    return EXCEED_MAX_NUM_LIST_ERROR;
+    fet_args->status = EXCEED_MAX_NUM_LIST_ERROR;
+    pthread_exit(NULL);
   }
   // perform removing
-  for (i = 0; i < handle[hid].rm_size; ++i) {
-    p = handle[hid].rm_list[i];
-    stat = handle[hid].status[p];
+  for (i = 0; i < handle[fet_args->hid].rm_size; ++i) {
+    p = handle[fet_args->hid].rm_list[i];
+    stat = handle[fet_args->hid].status[p];
     // check if it is cancelled by the above procedure
     if (stat & 0x4) {
+      j = stat >> 4;
+      // write back to hdf5 file if it is dirty
       if (stat & 0x2) {
-        // TODO: write back to hdf5 file
+        hsize_t offset[NDIM] = {p, 0};
+        hsize_t count[NDIM] = {1, handle[fet_args->hid].dim};
+        if (h5write(handle[fet_args->hid].h5id, NDIM, offset, count, 
+            handle[fet_args->hid].mem + j * handle[fet_args->hid].dim) < 0) {
+          fet_args->status = HDF5_RW_ERROR;
+          pthread_exit(NULL);
+        }
       }
       // release the slot
-      j = stat >> 4;
-      handle[hid].slot[++handle[hid].slot_ptr] = j;
+      handle[fet_args->hid].slot[++handle[fet_args->hid].slot_ptr] = j;
       // clear status
-      handle[hid].status[p] = 0x0;
+      handle[fet_args->hid].status[p] = 0x0;
     }
   }
   // generate rm_list for the next iteration
-  handle[hid].rm_size = 0;
-  for (i = 0, j = 0; i < handle[hid].curr_size; ++i) {
-    p = handle[hid].curr_list[i];
-    if (handle[hid].status[p] & 0x8) {
-      handle[hid].status[p] &= (SLOT_MASK << 4) | 0x7;
-      handle[hid].curr_list[j] = p;
+  handle[fet_args->hid].rm_size = 0;
+  for (i = 0, j = 0; i < handle[fet_args->hid].curr_size; ++i) {
+    p = handle[fet_args->hid].curr_list[i];
+    if (handle[fet_args->hid].status[p] & 0x8) {
+      handle[fet_args->hid].status[p] &= (SLOT_MASK << 4) | 0x7;
+      handle[fet_args->hid].curr_list[j] = p;
       ++j;
     }
     else {
-      handle[hid].rm_list[handle[hid].rm_size++] = p;
-      handle[hid].status[p] |= 0x4;
+      handle[fet_args->hid].rm_list[handle[fet_args->hid].rm_size++] = p;
+      handle[fet_args->hid].status[p] |= 0x4;
     }
   }
-  handle[hid].curr_size = j;
+  handle[fet_args->hid].curr_size = j;
   // append prefetch list and perform prefetching
   for (i = 0; i < fet_size; ++i) {
+    // -1 means to be determined
+    hsize_t offset[NDIM] = {-1, 0};
+    hsize_t count[NDIM] = {1, handle[fet_args->hid].dim};
     // allocate a slot
-    if (handle[hid].slot_ptr == -1) {
-      return EXCEED_MAX_NUM_SLOT_ERROR;
+    if (handle[fet_args->hid].slot_ptr == -1) {
+      fet_args->status = EXCEED_MAX_NUM_SLOT_ERROR;
+      pthread_exit(NULL);
     }
-    j = handle[hid].slot[handle[hid].slot_ptr--];
-    handle[hid].status[list[i]] = ((unsigned int)j << 4) | 0x1;
-    handle[hid].curr_list[handle[hid].curr_size++] = list[i];
-    // TODO: read from hdf5 file
+    p = fet_args->list[i];
+    j = handle[fet_args->hid].slot[handle[fet_args->hid].slot_ptr--];
+    handle[fet_args->hid].status[p] = ((unsigned int)j << 4) | 0x1;
+    handle[fet_args->hid].curr_list[handle[fet_args->hid].curr_size++] = p;
+    // read from hdf5 file
+    offset[0] = p;
+    if (h5read(handle[fet_args->hid].h5id, NDIM, offset, count, 
+        handle[fet_args->hid].mem + j * handle[fet_args->hid].dim) < 0) {
+      fet_args->status = HDF5_RW_ERROR;
+      pthread_exit(NULL);
+    }
   }
-  return 0;
+
+  fet_args->status = 0;
+  pthread_exit(NULL);
 }
 
 // Debug Interface

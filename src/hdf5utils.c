@@ -35,6 +35,7 @@ hid_t h5open(const char* file_name, const char* dataset_name,
     hsize_t current_dims[ndim], i;
     // check type consistence
     if (H5Tequal(H5Dget_type(dataset), H5TYPE) <= 0) {
+      // TODO: use syslog
       return -1;
     }
     // check dimension consistence

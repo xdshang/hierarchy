@@ -11,6 +11,11 @@
 #define MAX_NUM_LIST (MAX_NUM_SLOT / 2)
 #define MAX_NUM_HANDLE 5
 
+typedef struct _PrefetchArgs {
+  int hid, size, status;
+  int* list;
+} PrefetchArgs;
+
 int create_sync_param(const char *fname, const int num, const int dim);
 
 int destroy_sync_param(const int hid);
@@ -19,7 +24,8 @@ const Dtype* sync_param(const int hid, const int id);
 
 Dtype* mutable_sync_param(const int hid, const int id);
 
-int prefetch_sync_param(const int hid, int size, int* list);
+// pthread prototype
+void *prefetch_sync_param(void *args);
 
 // Debug Interface
 
