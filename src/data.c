@@ -7,7 +7,7 @@
 #define MAX_STRING 100 
 #define MAX_PAIRS_NUM 15000000
 
-const int vocab_hash_size = 200000000;  // about 1.5G
+const int vocab_hash_size = 20000000;
 int *vocab_hash;
 
 void learn_vocab_from_train_file(const DataParam* param, Vocab* vocab);

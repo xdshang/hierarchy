@@ -19,46 +19,13 @@ static Dtype *expTable = NULL;
 void create_binary_tree(Vocab *vocab);
 
 void init_hs(NetParam *param) {
-  size_t msize = param->vocab->size * param->layer1_size;
+  param->syn0_hid = create_sync_param(param->syn0_init_file, 
+      param->vocab->size, param->layer1_size);
+  assert(param->syn0_hid >= 0);
 
-  posix_memalign((void**)&(param->syn0), 128, msize * sizeof(Dtype));
-  assert(param->syn0);
-  if (param->syn0_init_file && strstr(param->syn0_init_file, ".txt")) {
-    int n, m, idx;
-    char word[100];
-    FILE *fp;
-    fp = fopen(param->syn0_init_file, "r");
-    printf("Loading initial syn0 from ascii file: %s...\n", param->syn0_init_file);
-    fscanf(fp, "%d %d\n", &n, &m);
-    assert(n == param->vocab->size && m == param->layer1_size);
-    for (n = 0; n < param->vocab->size; ++n) {
-      fscanf(fp, "%s", word);
-      idx = search_vocab(param->vocab, word);
-      assert(idx != -1);
-      for (m = 0; m < param->layer1_size; ++m) {
-        fscanf(fp, "%f ", &(param->syn0[idx * param->layer1_size + m]));
-      }
-    }
-    fclose(fp);
-  }
-  // else if (syn0_init_file[0] && strstr(syn0_init_file, ".h5")) {
-  //   printf("Loading initial syn0 from hdf5 file...\n");
-  //   hid_t file_id = H5Fopen(syn0_init_file, H5F_ACC_RDONLY, H5P_DEFAULT);
-  //   assert(file_id >= 0);
-  //   herr_t status = H5LTread_dataset_float(file_id, "/feat", param->syn0);
-  //   assert(status >= 0);
-  //   status = H5Fclose(file_id);
-  //   assert(status >= 0);
-  // }
-  else {
-    size_t i;
-    for (i = 0; i < msize; ++i)
-        param->syn0[i] = (rand() / (Dtype)RAND_MAX - 0.5) / param->layer1_size;
-  }
-
-  posix_memalign((void**)&(param->syn1), 128, msize * sizeof(Dtype));
-  assert(param->syn1);
-  memset(param->syn1, 0, msize * sizeof(Dtype));
+  param->syn1_hid = create_sync_param(param->syn1_init_file, 
+      param->vocab->size, param->layer1_size);
+  assert(param->syn1_hid >= 0);
 
   create_binary_tree(param->vocab);
 
@@ -75,29 +42,22 @@ void init_hs(NetParam *param) {
 }
 
 void *compute_hs_loss(void *args) {
-  int word_A[PAIR_TYPE_NUM], word_B[PAIR_TYPE_NUM];
-  int m, c, d;
-  int pair_stamp, pair_start, pair_end, batch_size;
-  size_t index_A, node_idx;
+  int m, c, d, pair_stamp, word_A[PAIR_TYPE_NUM], word_B[PAIR_TYPE_NUM];
   LossArg* thread_arg = (LossArg*)args;
   NetParam* param = thread_arg->param;
   DataPair* pairs = thread_arg->data;
   Dtype f;
+  const Dtype *syn0 = NULL, *syn1 = NULL;
 
   for (m = 0; m < PAIR_TYPE_NUM; ++m) {
     thread_arg->loss[m] = 0;
   }
 
-  batch_size = (pairs->size + thread_arg->thread_num - 1) / thread_arg->thread_num;
-  pair_start = batch_size * thread_arg->thread_id;
-  pair_end = pair_start + batch_size;
-  if (pair_end > pairs->size) {
-    pair_end = pairs->size;
-  }
-
-  for (pair_stamp = pair_start; pair_stamp < pair_end; ++pair_stamp) {
+  for (pair_stamp = thread_arg->pstart; pair_stamp < thread_arg->pend; ++pair_stamp) {
     word_A[0] = search_vocab(param->vocab, pairs->data[pair_stamp].first);
     word_B[0] = search_vocab(param->vocab, pairs->data[pair_stamp].second);
+    assert(word_A[0] >= 0);
+    assert(word_B[0] >= 0);
     word_A[1] = word_B[0];
     word_B[1] = word_A[0];
     word_A[2] = word_A[0];
@@ -106,13 +66,13 @@ void *compute_hs_loss(void *args) {
     word_B[3] = word_B[0];
 
     for (m = 0; m < PAIR_TYPE_NUM; ++m) {
-      index_A = word_A[m] * param->layer1_size;
+      syn0 = sync_param(param->syn0_hid, word_A[m]);
       for (d = 0; d < param->vocab->data[word_B[m]].codelen; ++d) {
         f = 0;
-        node_idx = param->vocab->data[word_B[m]].point[d] * param->layer1_size;
+        syn1 = sync_param(param->syn1_hid, param->vocab->data[word_B[m]].point[d]);
         // Propagate hidden -> output
         for (c = 0; c < param->layer1_size; ++c) {
-          f += param->syn0[c + index_A] * param->syn1[c + node_idx];  
+          f += syn0[c] * syn1[c];  
         }
         if (f <= -MAX_EXP) continue;
         else if (f >= MAX_EXP) continue;
@@ -133,26 +93,19 @@ void *compute_hs_loss(void *args) {
 }
 
 void* train_hs(void *args) {
-  int word_A[PAIR_TYPE_NUM], word_B[PAIR_TYPE_NUM];
-  int m, c, d;
-  size_t index_A, node_idx;
-  int pair_stamp, pair_start, pair_end, batch_size;
+  int m, c, d, pair_stamp, word_A[PAIR_TYPE_NUM], word_B[PAIR_TYPE_NUM];
   TrainArg* thread_arg = (TrainArg*)args;
   NetParam* param = thread_arg->param;
   DataPair* pairs = thread_arg->data;
-  Dtype f, g;
+  Dtype f, g, *syn1;
+  const Dtype *syn0;
   // Dtype *neu1e = (Dtype*)malloc(param->layer1_size * sizeof(Dtype));
 
-  batch_size = (pairs->size + thread_arg->thread_num - 1) / thread_arg->thread_num;
-  pair_start = batch_size * thread_arg->thread_id;
-  pair_end = pair_start + batch_size;
-  if (pair_end > pairs->size) {
-    pair_end = pairs->size;
-  }
-
-  for (pair_stamp = pair_start; pair_stamp < pair_end; ++pair_stamp) {
+  for (pair_stamp = thread_arg->pstart; pair_stamp < thread_arg->pend; ++pair_stamp) {
     word_A[0] = search_vocab(param->vocab, pairs->data[pair_stamp].first);
     word_B[0] = search_vocab(param->vocab, pairs->data[pair_stamp].second);
+    assert(word_A[0] >= 0);
+    assert(word_B[0] >= 0);
     word_A[1] = word_B[0];
     word_B[1] = word_A[0];
     word_A[2] = word_A[0];
@@ -162,14 +115,14 @@ void* train_hs(void *args) {
 
     for (m = 0; m < PAIR_TYPE_NUM; ++m) {
       // memset(neu1e, 0, param->layer1_size * sizeof(Dtype));
-      index_A = word_A[m] * param->layer1_size;
+      syn0 = sync_param(param->syn0_hid, word_A[m]);
       // HIERARCHICAL SOFTMAX
       for (d = 0; d < param->vocab->data[word_B[m]].codelen; ++d) {
         f = 0;
-        node_idx = param->vocab->data[word_B[m]].point[d] * param->layer1_size;
+        syn1 = mutable_sync_param(param->syn1_hid, param->vocab->data[word_B[m]].point[d]);
         // Propagate hidden -> output
         for (c = 0; c < param->layer1_size; ++c) {
-          f += param->syn0[c + index_A] * param->syn1[c + node_idx];  
+          f += syn0[c] * syn1[c];  
         }
         if (f <= -MAX_EXP) continue;
         else if (f >= MAX_EXP) continue;
@@ -184,8 +137,7 @@ void* train_hs(void *args) {
         // }
         // Learn weights hidden -> output
         for (c = 0; c < param->layer1_size; ++c) {
-          param->syn1[c + node_idx] += g * param->syn0[c + index_A] -
-              thread_arg->weight_decay * thread_arg->learning_rate * param->syn1[c + node_idx];
+          syn1[c] += g * syn0[c] - thread_arg->weight_decay * thread_arg->learning_rate * syn1[c];
         }
       }
     }
