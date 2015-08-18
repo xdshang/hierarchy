@@ -54,7 +54,7 @@ void _compute_boundary(const int total_size, const int batch_size,
   if (*pend > batch_size) {
     *pend = batch_size;
   }
-  *pend += *pstart;
+  *pend += batch_id * batch_size;
   if (*pend > total_size) {
     *pend = total_size;
   }

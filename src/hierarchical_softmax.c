@@ -54,16 +54,16 @@ void *compute_hs_loss(void *args) {
   }
 
   for (pair_stamp = thread_arg->pstart; pair_stamp < thread_arg->pend; ++pair_stamp) {
-    word_A[0] = search_vocab(param->vocab, pairs->data[pair_stamp].first);
-    word_B[0] = search_vocab(param->vocab, pairs->data[pair_stamp].second);
-    assert(word_A[0] >= 0);
-    assert(word_B[0] >= 0);
-    word_A[1] = word_B[0];
-    word_B[1] = word_A[0];
-    word_A[2] = word_A[0];
-    word_B[2] = word_A[0];
-    word_A[3] = word_B[0];
-    word_B[3] = word_B[0];
+    word_A[1] = search_vocab(param->vocab, pairs->data[pair_stamp].first);
+    word_B[1] = search_vocab(param->vocab, pairs->data[pair_stamp].second);
+    assert(word_A[1] >= 0);
+    assert(word_B[1] >= 0);
+    word_A[2] = word_B[1];
+    word_B[2] = word_A[1];
+    word_A[0] = word_A[1];
+    word_B[0] = word_A[1];
+    word_A[3] = word_B[1];
+    word_B[3] = word_B[1];
 
     for (m = 0; m < PAIR_TYPE_NUM; ++m) {
       syn0 = sync_param(param->syn0_hid, word_A[m]);
@@ -102,16 +102,16 @@ void* train_hs(void *args) {
   // Dtype *neu1e = (Dtype*)malloc(param->layer1_size * sizeof(Dtype));
 
   for (pair_stamp = thread_arg->pstart; pair_stamp < thread_arg->pend; ++pair_stamp) {
-    word_A[0] = search_vocab(param->vocab, pairs->data[pair_stamp].first);
-    word_B[0] = search_vocab(param->vocab, pairs->data[pair_stamp].second);
-    assert(word_A[0] >= 0);
-    assert(word_B[0] >= 0);
-    word_A[1] = word_B[0];
-    word_B[1] = word_A[0];
-    word_A[2] = word_A[0];
-    word_B[2] = word_A[0];
-    word_A[3] = word_B[0];
-    word_B[3] = word_B[0];
+    word_A[1] = search_vocab(param->vocab, pairs->data[pair_stamp].first);
+    word_B[1] = search_vocab(param->vocab, pairs->data[pair_stamp].second);
+    assert(word_A[1] >= 0);
+    assert(word_B[1] >= 0);
+    word_A[2] = word_B[1];
+    word_B[2] = word_A[1];
+    word_A[0] = word_A[1];
+    word_B[0] = word_A[1];
+    word_A[3] = word_B[1];
+    word_B[3] = word_B[1];
 
     for (m = 0; m < PAIR_TYPE_NUM; ++m) {
       // memset(neu1e, 0, param->layer1_size * sizeof(Dtype));
