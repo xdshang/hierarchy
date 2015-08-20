@@ -132,10 +132,11 @@ void solve() {
         e, curr_loss, type_loss[0], type_loss[1], type_loss[2], type_loss[3]);
 
     // Updating.
-    alpha = starting_alpha * (1 - (Dtype)e / (solver_param.num_epoches + 1));
-    if (alpha < starting_alpha * 0.0001) {
-      alpha = starting_alpha * 0.0001;
-    }
+    alpha = starting_alpha;
+    // alpha = starting_alpha * (1 - (Dtype)e / (solver_param.num_epoches + 1));
+    // if (alpha < starting_alpha * 0.0001) {
+    //   alpha = starting_alpha * 0.0001;
+    // }
     // prefetch the first batch
     _generate_fet_list(0, &(fet0_args.size), &(fet1_args.size),
         fet0_args.list, fet1_args.list);
