@@ -97,9 +97,8 @@ void* train_hs(void *args) {
   TrainArg* thread_arg = (TrainArg*)args;
   NetParam* param = thread_arg->param;
   DataPair* pairs = thread_arg->data;
-  Dtype f, g, *syn1;
-  const Dtype *syn0;
-  // Dtype *neu1e = (Dtype*)malloc(param->layer1_size * sizeof(Dtype));
+  Dtype f, g, *syn0, *syn1;
+  Dtype *neu1e = (Dtype*)malloc(param->layer1_size * sizeof(Dtype));
 
   for (pair_stamp = thread_arg->pstart; pair_stamp < thread_arg->pend; ++pair_stamp) {
     word_A[1] = search_vocab(param->vocab, pairs->data[pair_stamp].first);
@@ -114,8 +113,8 @@ void* train_hs(void *args) {
     word_B[3] = word_B[1];
 
     for (m = 0; m < PAIR_TYPE_NUM; ++m) {
-      // memset(neu1e, 0, param->layer1_size * sizeof(Dtype));
-      syn0 = sync_param(param->syn0_hid, word_A[m]);
+      memset(neu1e, 0, param->layer1_size * sizeof(Dtype));
+      syn0 = mutable_sync_param(param->syn0_hid, word_A[m]);
       // HIERARCHICAL SOFTMAX
       for (d = 0; d < param->vocab->data[word_B[m]].codelen; ++d) {
         f = 0;
@@ -132,22 +131,22 @@ void* train_hs(void *args) {
         // 'g' is the gradient multiplied by the learning rate
         g = (1 - param->vocab->data[word_B[m]].code[d] - f) * thread_arg->learning_rate;
         // Propagate errors output -> hidden
-        // for (c = 0; c < param->layer1_size; ++c) {
-        //   neu1e[c] += g * param->syn1[c + node_idx];
-        // }
+        for (c = 0; c < param->layer1_size; ++c) {
+          neu1e[c] += g * syn1[c];
+        }
         // Learn weights hidden -> output
         for (c = 0; c < param->layer1_size; ++c) {
           syn1[c] += g * syn0[c] - thread_arg->weight_decay * thread_arg->learning_rate * syn1[c];
         }
       }
+      // Compute mini batch loss and add to the neu1e.  
+      for (c = 0; c < param->layer1_size; ++c) {
+        syn0[c] += neu1e[c] - thread_arg->weight_decay * thread_arg->learning_rate * syn0[c];
+      }
     }
-    //Compute mini batch loss and add to the neu1e.  // for (c = 0; c < layer1_size; c++){
-    //  syn0_delta[c + index_A] = 0.9 * syn0_delta[c + index_A] - 0.0001 * alpha * syn0[c + index_A] + neu1e[c];
-    //  syn0[c + index_A] += syn0_delta[c + index_A];
-    // }
   }
 
-  // free(neu1e);
+  free(neu1e);
   pthread_exit(NULL);
 }
 
